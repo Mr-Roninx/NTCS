@@ -13,7 +13,7 @@ export default function TopNav() {
         <div className="logo-divider"></div>
       </Link>
       <button className="nav-btn outline" onClick={() => navigate('/')}>🔍 Verify Certificate</button>
-      <button className="nav-btn solid" onClick={() => navigate('/admin-login')}>⚙️ Admin Panel</button>
+      
     </nav>
   );
 }

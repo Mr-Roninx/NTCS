@@ -507,6 +507,8 @@ Layer 4 ──► 📄 Client-Side PDF Security
 Layer 5 ──► 🔒 Environment Variable Isolation
              └─ Credentials never committed to version control
              └─ .env enforced in .gitignore
+
+Note: A `.env.example` has been added to the repository. By default the client disables persistent sessions to reduce exposure of JWTs in browser storage. If you require session persistence, set `VITE_SUPABASE_PERSIST_SESSION=true` in a controlled environment and consider using a secure server-side cookie flow for production.
 ```
 
 ### ✅ Compliance Checklist

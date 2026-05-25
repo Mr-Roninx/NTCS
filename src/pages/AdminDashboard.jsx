@@ -12,6 +12,24 @@ const fileToBase64 = (file) =>
     reader.onerror = (err) => reject(err);
   });
 
+  // Security limits
+  const MAX_PHOTO_SIZE = 300 * 1024; // 300 KB
+  const MAX_BULK_SIZE = 5 * 1024 * 1024; // 5 MB
+  const MAX_BULK_RECORDS = 1000;
+
+  const handlePhotoSelection = (file, setter, notify) => {
+    if (!file) { setter(null); return; }
+    if (!file.type.startsWith('image/')) {
+      notify('❌ Invalid file type. Only images are allowed.', 'err');
+      return;
+    }
+    if (file.size > MAX_PHOTO_SIZE) {
+      notify('❌ Photo too large. Max 300 KB allowed.', 'err');
+      return;
+    }
+    setter(file);
+  };
+
 const formatDate = (ds) => {
   if (!ds) return '—';
   const d = new Date(ds);
@@ -131,8 +149,18 @@ export default function AdminDashboard() {
   /* Issue certificate */
   const handleIssue = async (e) => {
     e.preventDefault();
+    // Basic input validation
+    if (!iCertNo || !/^NTCS/.test(iCertNo)) { showToast('❌ Invalid certificate number.', 'err'); return; }
+    if (!iMobile || iMobile.replace(/\D/g, '').length < 10) { showToast('❌ Enter a valid 10-digit mobile number.', 'err'); return; }
+    if (new Date(iStart) > new Date(iEnd)) { showToast('❌ Start date cannot be after end date.', 'err'); return; }
+
     let photoUrl = '';
-    if (iPhoto) photoUrl = await fileToBase64(iPhoto);
+    if (iPhoto) {
+      // photo validated on selection, convert to base64
+      photoUrl = await fileToBase64(iPhoto);
+      // guard against enormous base64 blobs
+      if (photoUrl.length > 500000) { showToast('❌ Photo content too large after encoding.', 'err'); return; }
+    }
 
     const payload = {
       cert_no: iCertNo, mobile: iMobile, student_name: iName,
@@ -165,8 +193,15 @@ export default function AdminDashboard() {
   /* Save edit */
   const handleEditSave = async (e) => {
     e.preventDefault();
+    // Basic validation
+    if (!editData.cert_no || !/^NTCS/.test(editData.cert_no)) { showToast('❌ Invalid certificate number.', 'err'); return; }
+    if (!editData.mobile || editData.mobile.replace(/\D/g, '').length < 10) { showToast('❌ Enter a valid 10-digit mobile number.', 'err'); return; }
+
     let updatedPhoto = editData.photo_url;
-    if (ePhoto) updatedPhoto = await fileToBase64(ePhoto);
+    if (ePhoto) {
+      updatedPhoto = await fileToBase64(ePhoto);
+      if (updatedPhoto.length > 500000) { showToast('❌ Photo content too large after encoding.', 'err'); return; }
+    }
 
     const payload = {
       cert_no: editData.cert_no, mobile: editData.mobile,
@@ -218,12 +253,15 @@ export default function AdminDashboard() {
   /* Bulk file processor */
   const processBulkFile = (file) => {
     if (!file) return;
+    if (file.size > MAX_BULK_SIZE) { showToast('❌ File too large. Max 5 MB allowed.', 'err'); return; }
     setImportLoading(true);
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
         const wb = XLSX.read(evt.target.result, { type: 'binary' });
         const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+        if (!data || data.length === 0) throw new Error('No rows found');
+        if (data.length > MAX_BULK_RECORDS) throw new Error('Too many rows in file');
         const formattedData = data
           .filter(row => row['Cert No'])
           .map(row => ({
@@ -234,7 +272,8 @@ export default function AdminDashboard() {
             domain:       toTitleCase(String(row['Domain'] || '')).trim(),
             start_date:   parseExcelDate(row['Start Date']),
             end_date:     parseExcelDate(row['End Date'])
-          }));
+          }))
+          .filter(r => r.cert_no && r.student_name && r.mobile && r.mobile.length >= 10);
         if (formattedData.length === 0) throw new Error('No valid data found in the spreadsheet.');
         const { error } = await supabase.from('certificates').insert(formattedData);
         if (error) throw error;
@@ -316,7 +355,7 @@ export default function AdminDashboard() {
             <button
               className="sb-link"
               style={{ color: '#f87171' }}
-              onClick={() => supabase.auth.signOut().then(() => navigate('/login'))}
+              onClick={() => supabase.auth.signOut().then(() => navigate('/admin-login'))}
             >
               <span>🚪</span> Sign Out
             </button>
@@ -656,7 +695,7 @@ export default function AdminDashboard() {
                 {/* Photo */}
                 <div className="igroup f-full">
                   <label>Passport Photo</label>
-                  <input type="file" accept="image/*" onChange={e => setIPhoto(e.target.files[0])} />
+                  <input type="file" accept="image/*" onChange={e => handlePhotoSelection(e.target.files[0], setIPhoto, showToast)} />
                 </div>
 
                 {/* Photo preview */}
@@ -741,7 +780,7 @@ export default function AdminDashboard() {
             }}>
               <div style={{ flex: 1, minWidth: '180px' }}>
                 <label style={{ fontSize: '10px', color: 'var(--slate-500)', fontWeight: 700, marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '0.9px', display: 'block' }}>Replace Photo</label>
-                <input type="file" accept="image/*" style={{ fontSize: '12px', padding: '7px 10px' }} onChange={e => setEPhoto(e.target.files[0])} />
+                <input type="file" accept="image/*" style={{ fontSize: '12px', padding: '7px 10px' }} onChange={e => handlePhotoSelection(e.target.files[0], setEPhoto, showToast)} />
               </div>
               {editData.photo_url && (
                 <div style={{ width: 48, height: 58, borderRadius: 6, overflow: 'hidden', border: '2px solid var(--white)', boxShadow: 'var(--shadow-sm)', flexShrink: 0 }}>

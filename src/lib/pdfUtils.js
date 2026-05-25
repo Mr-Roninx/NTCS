@@ -18,8 +18,8 @@ export const convertElementToPDF = async (element, filename) => {
       // 3. Convert the DOM element to a canvas
       const canvas = await html2canvas(element, { 
         scale: 3, // High resolution for print
-        useCORS: true, 
-        allowTaint: true,
+        useCORS: true,
+        allowTaint: false, // avoid tainted canvases (safer and respects CORS)
         scrollY: -window.scrollY // Fixes shifting if the user scrolled down
       });
       

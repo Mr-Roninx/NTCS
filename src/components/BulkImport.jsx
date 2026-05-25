@@ -26,6 +26,12 @@ export default function BulkImport({ onImportSuccess, showToast }) {
 
   const processFile = (file) => {
     if (!file) return;
+    // Security: limit upload size to prevent abuse
+    const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
+    if (file.size > MAX_FILE_SIZE) {
+      showToast('❌ File too large. Maximum allowed is 5 MB.', 'err');
+      return;
+    }
     setLoading(true);
     const reader = new FileReader();
     reader.onload = async (evt) => {
@@ -33,15 +39,34 @@ export default function BulkImport({ onImportSuccess, showToast }) {
         const bstr = evt.target.result;
         const wb = XLSX.read(bstr, { type: 'binary' });
         const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
-        const formattedData = data.map(row => ({
-          cert_no: String(row['Cert No']).toUpperCase(),
-          mobile: String(row['Mobile']),
-          student_name: String(row['Student Name']).toUpperCase(),
-          program_type: row['Program Type'],
-          domain: row['Domain'],
-          start_date: new Date(row['Start Date']).toISOString().split('T')[0],
-          end_date: new Date(row['End Date']).toISOString().split('T')[0],
-        }));
+        // Basic validation and sanitization
+        const MAX_RECORDS = 1000;
+        if (data.length === 0) throw new Error('No rows found');
+        if (data.length > MAX_RECORDS) throw new Error('Too many rows in file');
+
+        const formattedData = data
+          .map(row => {
+            const certNo = String(row['Cert No'] || '').toUpperCase().trim();
+            const mobile = String(row['Mobile'] || '').replace(/\D/g, '');
+            const studentName = String(row['Student Name'] || '').toUpperCase().trim();
+            const start = row['Start Date'];
+            const end = row['End Date'];
+            const startDate = start ? new Date(start) : null;
+            const endDate = end ? new Date(end) : null;
+
+            return {
+              cert_no: certNo,
+              mobile,
+              student_name: studentName,
+              program_type: row['Program Type'] || 'Internship',
+              domain: row['Domain'] || '',
+              start_date: startDate && !isNaN(startDate.getTime()) ? startDate.toISOString().split('T')[0] : null,
+              end_date: endDate && !isNaN(endDate.getTime()) ? endDate.toISOString().split('T')[0] : null,
+            };
+          })
+          .filter(r => r.cert_no && r.student_name && r.mobile && r.mobile.length >= 10);
+
+        if (formattedData.length === 0) throw new Error('No valid records found after validation');
         await certificateService.create(formattedData);
         showToast(`✅ Imported ${formattedData.length} records!`, 'ok');
         if (onImportSuccess) onImportSuccess();

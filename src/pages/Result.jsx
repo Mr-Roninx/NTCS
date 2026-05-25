@@ -248,6 +248,11 @@ export default function Result() {
                     </div>
 
                     {/* Issue date */}
+                    {cert.issued_date && (
+                      <div className="cert-issued-date" style={{ top: 1300, left: 90, fontSize: 12, color: '#666' }}>
+                        Issued: {formatDate(cert.issued_date)}
+                      </div>
+                    )}
                     <div
                       className="cert-gendate"
                       style={{ top: 1290, left: 50, fontFamily: "'Syne', sans-serif", fontWeight: 600, color: '#555' }}

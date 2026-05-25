@@ -226,7 +226,7 @@ export default function AdminDashboard() {
   /* Download template */
   const handleDownloadTemplate = () => {
     const templateData = [{
-      'Cert No': 'NTCS261502', 'Mobile': '9876543210',
+      'Cert No': 'NTCS26I/T001', 'Mobile': '9876543210',
       'Student Name': 'DHAANSRI', 'Program Type': 'Internship',
       'Domain': 'Bio Medical Calibration', 'Start Date': '2026-05-10', 'End Date': '2026-06-01'
     }];

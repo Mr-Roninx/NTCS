@@ -11,9 +11,9 @@ export default function CertificateTable({ certs, search, loading, handleAdminPD
   const navigate = useNavigate();
 
   const filteredCerts = certs.filter(c =>
-    c.student_name.toLowerCase().includes(search.toLowerCase()) ||
-    c.cert_no.toLowerCase().includes(search.toLowerCase()) ||
-    c.domain.toLowerCase().includes(search.toLowerCase())
+    (c.student_name || '').toLowerCase().includes(search.toLowerCase()) ||
+    (c.cert_no || '').toLowerCase().includes(search.toLowerCase()) ||
+    (c.domain || '').toLowerCase().includes(search.toLowerCase())
   );
 
   return (

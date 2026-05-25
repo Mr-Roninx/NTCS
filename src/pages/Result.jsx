@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
@@ -9,6 +9,74 @@ const formatDate = (ds) => {
   const d = new Date(ds);
   return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
 };
+
+/* ─── PhotoSlot ───────────────────────────────────────────────────────── */
+/*
+  Separate component so it mounts fresh each time cert changes.
+  Key fix: for base64 data-URLs the browser decodes them synchronously —
+  by the time React attaches onLoad the image is already complete and the
+  event has already fired (or never will). We check img.complete on mount
+  via a ref callback instead of relying on onLoad alone.
+*/
+function PhotoSlot({ src, alt }) {
+  const [visible, setVisible] = useState(false);
+  const [errored, setErrored] = useState(false);
+
+  /* ref callback — fires when the <img> DOM node is created */
+  const imgRef = useCallback((node) => {
+    if (!node) return;
+    if (node.complete) {
+      // already decoded (typical for data-URLs)
+      setVisible(true);
+    }
+    // onLoad handles the rare case it wasn't yet complete
+  }, []);
+
+  if (!src || errored) {
+    return (
+      <div style={{
+        width:'100%', height:'100%',
+        display:'flex', flexDirection:'column',
+        alignItems:'center', justifyContent:'center',
+        background:'#e2e8f0', color:'#94a3b8',
+        fontSize:11, fontWeight:600, gap:6,
+      }}>
+        <span style={{ fontSize:28 }}>👤</span>
+        <span>No Photo</span>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {/* Placeholder visible until image confirms it's painted */}
+      {!visible && (
+        <div style={{
+          position:'absolute', inset:0,
+          display:'flex', flexDirection:'column',
+          alignItems:'center', justifyContent:'center',
+          background:'#e2e8f0', color:'#94a3b8',
+          fontSize:11, fontWeight:600, gap:6,
+        }}>
+          <span style={{ fontSize:20 }}>⏳</span>
+        </div>
+      )}
+      <img
+        ref={imgRef}
+        src={src}
+        alt={alt}
+        onLoad={() => setVisible(true)}
+        onError={() => setErrored(true)}
+        style={{
+          width:'100%', height:'100%',
+          objectFit:'cover',
+          opacity: visible ? 1 : 0,
+          transition: 'opacity 0.2s ease',
+        }}
+      />
+    </>
+  );
+}
 
 /* ─── Component ───────────────────────────────────────────────────────── */
 export default function Result() {
@@ -30,28 +98,44 @@ export default function Result() {
 
   if (!cert) return null;
 
+  /* ── Wait for all images in the certificate element to fully load ── */
   const hydrateImages = async (element) => {
     const imgs = Array.from(element.getElementsByTagName('img'));
     await Promise.all(
       imgs.map(img =>
-        img.complete ? Promise.resolve()
+        img.complete
+          ? Promise.resolve()
           : new Promise(res => { img.onload = res; img.onerror = res; })
       )
     );
   };
 
+  /* ── PDF export ──
+     CRITICAL: No crossOrigin on photo <img>.
+     crossOrigin="anonymous" on a base64 data-URL img causes a CORS taint
+     error — the browser refuses to paint it and html2canvas bails.
+     Data-URLs are same-origin by definition; no CORS header needed.
+     useCORS: false + allowTaint: true lets html2canvas render them freely.
+  ── */
   const handleDownloadPDF = async () => {
     if (!certificateRef.current) return;
     setDownloading(true);
     try {
       const el = certificateRef.current;
       await hydrateImages(el);
+
       const canvas = await html2canvas(el, {
-        scale: 2, useCORS: true, allowTaint: false, logging: false,
-        width: 1000, height: 1414, backgroundColor: '#ffffff',
+        scale:           2,
+        useCORS:         false,
+        allowTaint:      true,
+        logging:         false,
+        width:           1000,
+        height:          1414,
+        backgroundColor: '#ffffff',
       });
+
       const imgData = canvas.toDataURL('image/jpeg', 1.0);
-      const pdf     = new jsPDF({ orientation: 'portrait', unit: 'px', format: [1000, 1414] });
+      const pdf     = new jsPDF({ orientation:'portrait', unit:'px', format:[1000,1414] });
       pdf.addImage(imgData, 'JPEG', 0, 0, 1000, 1414);
       pdf.save(`Certificate_${cert.cert_no}.pdf`);
     } catch (err) {
@@ -62,38 +146,35 @@ export default function Result() {
   };
 
   return (
-    <div className="page" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div className="page" style={{ minHeight:'100vh', display:'flex', flexDirection:'column' }}>
 
-      {/* ── CONTENT ── */}
       <div className="result-wrap">
-
-        {/* Vault Split */}
         <div className="grid-vault-split">
 
           {/* ── LEFT: Info & Controls ── */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+          <div style={{ display:'flex', flexDirection:'column', gap:18 }}>
 
             {/* Status Badge */}
             <div style={{
-              background: 'var(--white)', border: '1px solid var(--slate-200)',
-              borderRadius: 'var(--radius-lg)', padding: '16px 20px',
-              boxShadow: 'var(--shadow-sm)',
-              display: 'flex', alignItems: 'center', gap: 12,
+              background:'var(--white)', border:'1px solid var(--slate-200)',
+              borderRadius:'var(--radius-lg)', padding:'16px 20px',
+              boxShadow:'var(--shadow-sm)',
+              display:'flex', alignItems:'center', gap:12,
             }}>
               <div style={{
-                width: 40, height: 40, borderRadius: 'var(--radius-md)',
-                background: 'var(--emerald-100)', display: 'flex', alignItems: 'center',
-                justifyContent: 'center', fontSize: 18, flexShrink: 0,
+                width:40, height:40, borderRadius:'var(--radius-md)',
+                background:'var(--emerald-100)', display:'flex', alignItems:'center',
+                justifyContent:'center', fontSize:18, flexShrink:0,
               }}>✅</div>
               <div>
-                <div style={{ fontFamily: 'var(--font-display)', fontSize: 13, fontWeight: 800, color: 'var(--slate-900)' }}>
+                <div style={{ fontFamily:'var(--font-display)', fontSize:13, fontWeight:800, color:'var(--slate-900)' }}>
                   Certificate Verified
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                <div style={{ fontSize:11, color:'var(--muted)', marginTop:2 }}>
                   Authentic record confirmed
                 </div>
               </div>
-              <span className="badge-ok" style={{ marginLeft: 'auto' }}>✔ AUTHENTIC</span>
+              <span className="badge-ok" style={{ marginLeft:'auto' }}>✔ AUTHENTIC</span>
             </div>
 
             {/* Certificate Info */}
@@ -124,13 +205,13 @@ export default function Result() {
 
               <div className="info-row">
                 <div className="info-row-label">Domain</div>
-                <div className="info-row-value" style={{ fontSize: 13 }}>{cert.domain}</div>
+                <div className="info-row-value" style={{ fontSize:13 }}>{cert.domain}</div>
               </div>
               <div className="divider" />
 
-              <div className="info-row" style={{ marginBottom: 0 }}>
+              <div className="info-row" style={{ marginBottom:0 }}>
                 <div className="info-row-label">Duration</div>
-                <div className="info-row-value" style={{ fontSize: 13 }}>
+                <div className="info-row-value" style={{ fontSize:13 }}>
                   {formatDate(cert.start_date)} — {formatDate(cert.end_date)}
                 </div>
               </div>
@@ -150,31 +231,33 @@ export default function Result() {
                   onChange={e => setZoom(parseFloat(e.target.value))}
                 />
                 <div className="zoom-btns">
-                  <button type="button" className="zoom-btn" onClick={() => setZoom(window.innerWidth < 640 ? 0.35 : 0.65)}>Fit View</button>
-                  <button type="button" className="zoom-btn primary" onClick={() => setZoom(1.0)}>100%</button>
+                  <button type="button" className="zoom-btn"
+                    onClick={() => setZoom(window.innerWidth < 640 ? 0.35 : 0.65)}>Fit View</button>
+                  <button type="button" className="zoom-btn primary"
+                    onClick={() => setZoom(1.0)}>100%</button>
                 </div>
               </div>
             </div>
 
             {/* Download Panel */}
-            <div className="info-panel" style={{ background: 'linear-gradient(135deg, var(--ink-900), var(--ink-700))', border: 'none' }}>
-              <div style={{ fontSize: 26, marginBottom: 10 }}>📥</div>
-              <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 14, color: '#fff', marginBottom: 5 }}>
+            <div className="info-panel" style={{ background:'linear-gradient(135deg, var(--ink-900), var(--ink-700))', border:'none' }}>
+              <div style={{ fontSize:26, marginBottom:10 }}>📥</div>
+              <div style={{ fontFamily:'var(--font-display)', fontWeight:800, fontSize:14, color:'#fff', marginBottom:5 }}>
                 Download Certificate
               </div>
-              <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', lineHeight: 1.65, marginBottom: 16 }}>
+              <p style={{ fontSize:12, color:'rgba(255,255,255,0.5)', lineHeight:1.65, marginBottom:16 }}>
                 Save as a high-resolution PDF document.
               </p>
               <button
                 onClick={handleDownloadPDF}
                 disabled={downloading}
                 style={{
-                  width: '100%', padding: '10px 0', border: '1px solid rgba(255,255,255,0.15)',
+                  width:'100%', padding:'10px 0', border:'1px solid rgba(255,255,255,0.15)',
                   background: downloading ? 'rgba(255,255,255,0.10)' : 'rgba(6,182,212,0.25)',
-                  borderRadius: 'var(--radius-sm)', color: '#fff',
-                  fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 700,
+                  borderRadius:'var(--radius-sm)', color:'#fff',
+                  fontFamily:'var(--font-display)', fontSize:12, fontWeight:700,
                   cursor: downloading ? 'not-allowed' : 'pointer',
-                  transition: 'all var(--t-base)', letterSpacing: '0.3px',
+                  transition:'all var(--t-base)', letterSpacing:'0.3px',
                 }}
               >
                 {downloading ? '⏳ Generating PDF...' : '⬇ Export as PDF'}
@@ -186,40 +269,40 @@ export default function Result() {
           {/* ── RIGHT: Certificate Preview ── */}
           <div className="preview-scroll-engine">
             <div style={{
-              width: '100%', display: 'flex', justifyContent: 'center',
-              height: `${1414 * zoom + 40}px`, transition: 'height 0.15s ease-out',
+              width:'100%', display:'flex', justifyContent:'center',
+              height:`${1414 * zoom + 40}px`, transition:'height 0.15s ease-out',
             }}>
               <div style={{
-                width: 1000, height: 1414,
-                transform: `scale(${zoom})`, transformOrigin: 'top center',
-                flexShrink: 0, position: 'relative',
+                width:1000, height:1414,
+                transform:`scale(${zoom})`, transformOrigin:'top center',
+                flexShrink:0, position:'relative',
               }}>
                 <div
                   id="certificate"
                   ref={certificateRef}
                   style={{
-                    width: 1000, height: 1414,
-                    backgroundImage: "url('/Template.jpg')",
-                    backgroundSize: '100% 100%', backgroundRepeat: 'no-repeat',
-                    position: 'absolute', boxShadow: 'var(--shadow-xl)', overflow: 'hidden',
+                    width:1000, height:1414,
+                    backgroundImage:"url('/Template.jpg')",
+                    backgroundSize:'100% 100%', backgroundRepeat:'no-repeat',
+                    position:'absolute', boxShadow:'var(--shadow-xl)', overflow:'hidden',
                   }}
                 >
-                  <div style={{ position: 'absolute', inset: 0, zIndex: 1, pointerEvents: 'none' }}>
+                  <div style={{ position:'absolute', inset:0, zIndex:1, pointerEvents:'none' }}>
 
                     {/* Certificate number */}
-                    <div className="cert-number" style={{ top: 215, left: 650 }}>
+                    <div className="cert-number" style={{ top:215, left:650 }}>
                       Certificate: {cert.cert_no}
                     </div>
 
                     {/* Heading */}
-                    <div className="cert-heading" style={{ top: 495, left: 90 }}>
+                    <div className="cert-heading" style={{ top:495, left:90 }}>
                       To Whomsoever It May Concern
                     </div>
 
                     {/* Body */}
                     <div
                       className="cert-body"
-                      style={{ top: 575, left: 90, lineHeight: '45px', fontFamily: "'DM Sans', sans-serif" }}
+                      style={{ top:575, left:90, lineHeight:'45px', fontFamily:"'DM Sans', sans-serif" }}
                     >
                       This is to certify that{' '}
                       <span className="cert-dynamic">{cert.student_name}</span>{' '}
@@ -243,33 +326,40 @@ export default function Result() {
                     </div>
 
                     {/* Verified stamp */}
-                    <div className="cert-verified" style={{ top: 1245, left: 40 }}>
+                    <div className="cert-verified" style={{ top:1245, left:40 }}>
                       ✔ Digitally Verified
                     </div>
 
                     {/* Issue date */}
-                    {cert.issued_date && (
-                      <div className="cert-issued-date" style={{ top: 1300, left: 90, fontSize: 12, color: '#666' }}>
-                        Issued: {formatDate(cert.issued_date)}
-                      </div>
-                    )}
                     <div
                       className="cert-gendate"
-                      style={{ top: 1290, left: 50, fontFamily: "'Syne', sans-serif", fontWeight: 600, color: '#555' }}
+                      style={{ top:1290, left:50, fontFamily:"'Syne', sans-serif", fontWeight:600, color:'#555' }}
                     >
                       Issued: {formatDate(cert.issued_date || new Date())}
                     </div>
 
-                    {/* Photo */}
+                    {/* ── PHOTO ──
+                        PhotoSlot uses a ref callback to detect when a base64
+                        data-URL image is already complete (synchronously decoded)
+                        since onLoad alone won't fire in that case.
+                        No crossOrigin attribute — data-URLs don't need CORS.
+                    ── */}
                     <div
                       className="cert-photo"
-                      style={{ top: 335, right: 55, width: 165, height: 195, border: '4px solid #fff', boxShadow: '0 8px 24px rgba(0,0,0,0.18)', background: '#f1f5f9' }}
+                      style={{
+                        position: 'absolute',
+                        top: 335, right: 55,
+                        width: 165, height: 195,
+                        border: '4px solid #fff',
+                        boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+                        borderRadius: 4,
+                        overflow: 'hidden',
+                      }}
                     >
-                      <img
-                        src={cert.photo_url || 'https://via.placeholder.com/165x195.png?text=Photo'}
-                        crossOrigin="anonymous"
+                      <PhotoSlot
+                        key={cert.id}
+                        src={cert.photo_url || null}
                         alt={cert.student_name}
-                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                       />
                     </div>
 

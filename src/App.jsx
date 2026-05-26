@@ -5,21 +5,31 @@ import ProtectedRoute from './components/ProtectedRoute';
 import TopNav from './components/TopNav';
 import Verify from './pages/Verify';
 import Result from './pages/Result';
+import Request from './pages/Request'; 
 import AdminLogin from './pages/AdminLogin';
 import AdminDashboard from './pages/AdminDashboard';
 
 export default function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
+      {/* 1. Added Future Flags to completely silence the console warnings in the log */}
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <TopNav />
         <Routes>
+          {/* Public Verification Gateway Node */}
           <Route path="/" element={<Verify />} />
           <Route path="/result" element={<Result />} />
+          
+          {/* Public Request Filing Node */}
+          <Route path="/request" element={<Request />} />
+          
+          {/* 2. Changed from "/login" to "/admin-login" to match your system context redirection path calls */}
           <Route path="/admin-login" element={<AdminLogin />} />
+          
+          {/* Protected Operator Console Node */}
           <Route 
             path="/admin" 
-            element={
+            element = {
               <ProtectedRoute>
                 <AdminDashboard />
               </ProtectedRoute>

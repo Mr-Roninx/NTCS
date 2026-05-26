@@ -8,12 +8,23 @@ export default function TopNav() {
     <nav className="topnav">
       <Link to="/" className="logo-wrap">
         <div className="logo-img-box">
-          <img src="/Logo.jpg" alt="NTCS Logo" onError={(e) => { e.target.style.display='none'; }} />
+          <img 
+            src="/Logo.jpg" 
+            alt="NTCS Logo" 
+            onError={(e) => { e.target.style.display='none'; }} 
+          />
         </div>
         <div className="logo-divider"></div>
       </Link>
-      <button className="nav-btn outline" onClick={() => navigate('/')}>🔍 Verify Certificate</button>
       
+      <div style={{ display: 'flex', gap: '12px', marginLeft: 'auto' }}>
+        <button className="nav-btn outline" onClick={() => navigate('/')}>
+          🔍 Verify Certificate
+        </button>
+        
+        {/* The Request button has been completely removed from the DOM tree. */}
+        {/* Access to the application form is now restricted to manual URL navigation via "/request". */}
+      </div>
     </nav>
   );
 }

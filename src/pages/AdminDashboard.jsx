@@ -55,7 +55,7 @@ function CropModal({ imageSrc, onConfirm, onCancel }) {
       setPos(clamp({ x: (CONTAINER_W - dw) / 2, y: (CONTAINER_H - dh) / 2 }, baseScale, nw, nh));
     };
     img.src = imageSrc;
-  }, [imageSrc]); // eslint-disable-line
+  }, [imageSrc, clamp]);
 
   const dw = imgNatural.w * scale;
   const dh = imgNatural.h * scale;
@@ -200,15 +200,19 @@ export default function AdminDashboard() {
   const [iEnd,    setIEnd]    = useState('');
   const [iPhoto,  setIPhoto]  = useState(null);
 
-  /* Edit modal — store the ENTIRE cert record so nothing is lost */
+  /* Edit modal */
   const [isEditOpen,  setIsEditOpen]  = useState(false);
-  const [editRecord,  setEditRecord]  = useState(null);   // full row from DB
-  const [editFields,  setEditFields]  = useState({});     // only the editable fields
-  const [ePhoto,      setEPhoto]      = useState(undefined); // undefined=keep, null=remove, string=new
+  const [editRecord,  setEditRecord]  = useState(null);   
+  const [editFields,  setEditFields]  = useState({});     
+  const [ePhoto,      setEPhoto]      = useState(undefined); 
 
   /* Bulk import */
   const [dragActive,    setDragActive]    = useState(false);
   const [importLoading, setImportLoading] = useState(false);
+
+  /* Request tab state */
+  const [requestActionRecord, setRequestActionRecord] = useState(null);
+  const [isAcceptModalOpen, setIsAcceptModalOpen] = useState(false);
 
   const showToast = (message, type = 'ok') => {
     setToast({ message, type, show: true });
@@ -226,10 +230,20 @@ export default function AdminDashboard() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const filteredCerts = certs.filter(c =>
+  // Separate master certificates from pending requests based on tracking template prefixes
+  const approvedCerts = certs.filter(c => !c.cert_no?.startsWith('PENDING/'));
+  const pendingRequests = certs.filter(c => c.cert_no?.startsWith('PENDING/'));
+
+  const filteredCerts = approvedCerts.filter(c =>
     (c.student_name || '').toLowerCase().includes(search.toLowerCase()) ||
     (c.cert_no      || '').toLowerCase().includes(search.toLowerCase()) ||
     (c.domain       || '').toLowerCase().includes(search.toLowerCase())
+  );
+
+  const filteredRequests = pendingRequests.filter(c =>
+    (c.student_name || '').toLowerCase().includes(search.toLowerCase()) ||
+    (c.domain       || '').toLowerCase().includes(search.toLowerCase()) ||
+    (c.mobile       || '').includes(search)
   );
 
   /* ── Selection ── */
@@ -251,12 +265,12 @@ export default function AdminDashboard() {
     const pfx = programType === 'Internship' ? 'I' : 'T';
     let max = 0;
     certs.forEach(c => {
-      if (c.cert_no) {
+      if (c.cert_no && !c.cert_no.startsWith('PENDING/')) {
         const match = c.cert_no.match(/(\d+)$/);
         if (match && c.cert_no.includes(`NTCS${yr}${pfx}`)) max = Math.max(max, parseInt(match[1]));
       }
     });
-    setICertNo(`NTCS${yr}${pfx}/T${String(max+1).padStart(3,'0')}`);
+    return `NTCS${yr}${pfx}/T${String(max+1).padStart(3,'0')}`;
   };
 
   /* ── Issue ── */
@@ -281,15 +295,10 @@ export default function AdminDashboard() {
     }
   };
 
-  /* ── Open edit ──
-     KEY FIX: store the COMPLETE raw cert row in editRecord.
-     editFields holds only what the form inputs bind to.
-     On save we spread editRecord and overwrite only the changed fields,
-     so no column is accidentally omitted or defaulted by Supabase.
-  ── */
+  /* ── Open edit ── */
   const openEdit = (cert) => {
-    setEditRecord(cert);                         // full row — never mutated
-    setEditFields({                              // only the 7 editable text fields
+    setEditRecord(cert);                         
+    setEditFields({                              
       cert_no:      cert.cert_no      ?? '',
       mobile:       cert.mobile       ?? '',
       student_name: cert.student_name ?? '',
@@ -298,58 +307,40 @@ export default function AdminDashboard() {
       start_date:   cert.start_date   ?? '',
       end_date:     cert.end_date     ?? '',
     });
-    setEPhoto(undefined);                        // undefined = "user hasn't touched photo"
+    setEPhoto(undefined);                        
     setIsEditOpen(true);
   };
 
   const closeEdit = () => { setIsEditOpen(false); setEditRecord(null); setEditFields({}); setEPhoto(undefined); };
 
-  /* ── Save edit ──
-     Build the update payload by spreading editFields (the changed text values)
-     then resolving the photo separately.
-     Use editRecord.id (the original DB row id) for the .eq() filter.
-  ── */
   const handleEditSave = async (e) => {
     e.preventDefault();
-
     if (!editRecord) { showToast('❌ No record loaded.', 'err'); return; }
-    if (!editFields.cert_no || !/^NTCS/.test(editFields.cert_no))       { showToast('❌ Invalid certificate number.', 'err'); return; }
+    if (!editFields.cert_no || (!/^NTCS/.test(editFields.cert_no) && !editFields.cert_no.startsWith('PENDING/'))) { showToast('❌ Invalid certificate configuration structure.', 'err'); return; }
     if (!editFields.mobile || editFields.mobile.replace(/\D/g,'').length < 10) { showToast('❌ Enter a valid 10-digit mobile number.', 'err'); return; }
 
-    /* Photo resolution:
-       ePhoto === undefined  → keep whatever photo_url is in editRecord (original DB value)
-       ePhoto === null       → user explicitly removed → store ''
-       ePhoto === string     → user uploaded a new cropped photo               */
     const resolvedPhoto =
       ePhoto === undefined ? (editRecord.photo_url ?? '')
       : ePhoto === null    ? ''
       :                      ePhoto;
 
     const payload = {
-      ...editFields,          // cert_no, mobile, student_name, program_type, domain, start_date, end_date
+      ...editFields,
       photo_url: resolvedPhoto,
     };
-
-    console.log('[Edit] Saving id:', editRecord.id, 'type:', typeof editRecord.id);
-    console.log('[Edit] Payload:', { ...payload, photo_url: payload.photo_url ? '[photo data]' : '' });
 
     const { data, error } = await supabase
       .from('certificates')
       .update(payload)
       .eq('id', editRecord.id)
-      .select();             // .select() forces Supabase to return the updated rows
-
-    console.log('[Edit] Result data:', data, 'error:', error);
+      .select();
 
     if (error) {
-      console.error('[Edit] Supabase error:', error);
       showToast(`❌ Update failed: ${error.message}`, 'err');
     } else if (!data || data.length === 0) {
-      /* .select() returned nothing → the .eq() matched 0 rows */
-      console.error('[Edit] 0 rows matched — id may be wrong type or RLS is blocking');
-      showToast('❌ Update matched no rows. Check console for details.', 'err');
+      showToast('❌ Update matched no active rows.', 'err');
     } else {
-      showToast('✅ Certificate updated.', 'ok');
+      showToast('✅ Certificate registry parameters synchronized.', 'ok');
       closeEdit();
       loadData();
     }
@@ -361,6 +352,64 @@ export default function AdminDashboard() {
     const { error } = await supabase.from('certificates').delete().eq('cert_no', certNo);
     if (error) showToast('❌ Delete failed.', 'err');
     else { showToast(`🗑️ ${certNo} deleted.`, 'ok'); loadData(); }
+  };
+
+  /* ── Request tab actions ── */
+  const openAcceptModal = (record) => {
+    const generatedNo = calculateNextCertNo(record.program_type);
+    setICertNo(generatedNo);
+    setEditFields({
+      cert_no: generatedNo,
+      mobile: record.mobile ?? '',
+      student_name: record.student_name ?? '',
+      program_type: record.program_type ?? 'Internship',
+      domain: record.domain ?? '',
+      start_date: record.start_date ?? '',
+      end_date: record.end_date ?? '',
+    });
+    setEPhoto(undefined);
+    setRequestActionRecord(record);
+    setIsAcceptModalOpen(true);
+  };
+
+  const handleAcceptRequestSubmit = async (e) => {
+    e.preventDefault();
+    if (!requestActionRecord) return;
+    if (!editFields.cert_no || !/^NTCS/.test(editFields.cert_no)) { showToast('❌ Invalid certificate layout token.', 'err'); return; }
+
+    const finalPhoto = ePhoto === undefined ? (requestActionRecord.photo_url ?? '') : (ePhoto ?? '');
+
+    const payload = {
+      cert_no: editFields.cert_no,
+      mobile: editFields.mobile,
+      student_name: editFields.student_name,
+      program_type: editFields.program_type,
+      domain: editFields.domain,
+      start_date: editFields.start_date,
+      end_date: editFields.end_date,
+      photo_url: finalPhoto,
+    };
+
+    const { error } = await supabase
+      .from('certificates')
+      .update(payload)
+      .eq('id', requestActionRecord.id);
+
+    if (error) {
+      showToast('❌ Failed to approve and promote request.', 'err');
+    } else {
+      showToast('🎉 Request approved! Certificate is now live.', 'ok');
+      setIsAcceptModalOpen(false);
+      setRequestActionRecord(null);
+      loadData();
+    }
+  };
+
+  const handleRejectRequest = async (record) => {
+    if (!window.confirm(`Are you sure you want to decline and drop the application filed by ${record.student_name}?`)) return;
+    const { error } = await supabase.from('certificates').delete().eq('id', record.id);
+    if (error) showToast('❌ Operation failure structural exception context.', 'err');
+    else { showToast('🗑️ Request dropped successfully from active validation grids.', 'ok'); loadData(); }
   };
 
   /* ── Bulk import helpers ── */
@@ -419,16 +468,13 @@ export default function AdminDashboard() {
   const allSelected  = filteredCerts.length > 0 && selected.size === filteredCerts.length;
   const someSelected = selected.size > 0 && selected.size < filteredCerts.length;
 
-  /* ─── Render ─────────────────────────────────────────────────────────── */
   return (
     <div className="admin-layout-root">
-
       {isMobileOpen && (
         <div onClick={() => setIsMobileOpen(false)} style={{ position:'fixed', inset:0, zIndex:999, background:'rgba(4,8,15,0.55)', backdropFilter:'blur(4px)' }} />
       )}
 
       <div className="dash-split">
-
         {/* ── SIDEBAR ── */}
         <aside className={`sidebar ${isMobileOpen ? 'open' : ''}`}>
           <div className="sb-profile">
@@ -438,45 +484,53 @@ export default function AdminDashboard() {
           </div>
           <div className="sb-section"><div className="sb-section-lbl">Navigation</div></div>
           <ul className="sb-menu">
-            <li><button className={`sb-link ${activeTab==='all'?'active':''}`} onClick={() => { setActiveTab('all'); setIsMobileOpen(false); }}><span>📋</span> All Certificates</button></li>
+            <li><button className={`sb-link ${activeTab==='all'?'active':''}`} onClick={() => { setActiveTab('all'); setIsMobileOpen(false); setSelected(new Set()); }}><span>📋</span> All Certificates</button></li>
             <li><button className={`sb-link ${activeTab==='issue'?'active':''}`} onClick={() => { setActiveTab('issue'); setIsMobileOpen(false); }}><span>✨</span> Issue Certificate</button></li>
+            <li><button className={`sb-link ${activeTab==='requests'?'active':''}`} onClick={() => { setActiveTab('requests'); setIsMobileOpen(false); }}><span>📥</span> Pending Requests ({pendingRequests.length})</button></li>
           </ul>
           <div className="sb-footer">
-            <button className="sb-link" style={{ color:'#f87171' }} onClick={() => supabase.auth.signOut().then(() => navigate('/admin-login'))}>
+            <button className="sb-link" style={{ color:'#f87171' }} onClick={() => supabase.auth.signOut().then(() => navigate('/login'))}>
               <span>🚪</span> Sign Out
             </button>
           </div>
         </aside>
 
-        {/* ── MAIN ── */}
+        {/* ── MAIN CONTENT ── */}
         <main className="admin-content">
-
           <div className="content-header">
             <div>
-              <h1>{activeTab==='all' ? 'Certificate Registry' : 'Issue Certificate'}</h1>
-              <p>{activeTab==='all' ? `${certs.length} total records · Manage and track all issued credentials` : 'Create and deploy a new credential to the registry'}</p>
+              <h1>
+                {activeTab==='all' && 'Certificate Registry'}
+                {activeTab==='issue' && 'Issue Certificate'}
+                {activeTab==='requests' && 'Pending Requests Submissions'}
+              </h1>
+              <p>
+                {activeTab==='all' && `${approvedCerts.length} total records · Manage and track all issued credentials`}
+                {activeTab==='issue' && 'Create and deploy a new credential directly to the registry'}
+                {activeTab==='requests' && `${pendingRequests.length} pending requests require administrator attention`}
+              </p>
             </div>
             {activeTab==='all' && (
               <button className="nav-btn solid" style={{ fontSize:'12px', padding:'10px 18px' }} onClick={() => setActiveTab('issue')}><span>+</span> Issue New</button>
             )}
           </div>
 
-          {/* ── ALL TAB ── */}
+          {/* ── ALL REGISTER TAB ── */}
           {activeTab === 'all' && (<>
             <div className="stats-row">
               <div className="stat" style={{ animationDelay:'0ms' }}>
-                <div className="s-label">Total</div>
-                <div className="s-val">{certs.length}</div>
-                <div className="s-sub">All active records</div>
+                <div className="s-label">Total Volume</div>
+                <div className="s-val">{approvedCerts.length}</div>
+                <div className="s-sub">All active credentials</div>
               </div>
               <div className="stat" style={{ animationDelay:'80ms' }}>
                 <div className="s-label" style={{ color:'var(--cyan-600)' }}>Internships</div>
-                <div className="s-val" style={{ color:'var(--cyan-600)' }}>{certs.filter(c=>c.program_type==='Internship').length}</div>
-                <div className="s-sub">Internship records</div>
+                <div className="s-val" style={{ color:'var(--cyan-600)' }}>{approvedCerts.filter(c=>c.program_type==='Internship').length}</div>
+                <div className="s-sub">Internship schemes</div>
               </div>
               <div className="stat" style={{ animationDelay:'160ms' }}>
                 <div className="s-label" style={{ color:'var(--emerald-600)' }}>Trainings</div>
-                <div className="s-val" style={{ color:'var(--emerald-600)' }}>{certs.filter(c=>c.program_type==='Training').length}</div>
+                <div className="s-val" style={{ color:'var(--emerald-600)' }}>{approvedCerts.filter(c=>c.program_type==='Training').length}</div>
                 <div className="s-sub">Training records</div>
               </div>
             </div>
@@ -506,12 +560,12 @@ export default function AdminDashboard() {
                 <div style={{ display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap' }}>
                   <h3>All Records</h3>
                   {selected.size > 0 && (
-                    <button className="ab ab-del" style={{ padding:'6px 14px', fontSize:'12px', fontWeight:700, display:'flex', alignItems:'center', gap:'5px', borderRadius:'6px', cursor:'pointer' }} onClick={handleBulkDelete}>
+                    <button className="ab ab-del" style={{ padding:'6px 14px', fontSize:'12px', fontWeight:700, borderRadius:'6px', cursor:'pointer' }} onClick={handleBulkDelete}>
                       🗑 Delete Selected ({selected.size})
                     </button>
                   )}
                 </div>
-                <input type="text" className="s-input" placeholder="🔍  Search by name, cert no, domain..." value={search} onChange={e=>{setSearch(e.target.value);setSelected(new Set());}} />
+                <input type="text" className="s-input" placeholder="🔍  Search registry cards..." value={search} onChange={e=>{setSearch(e.target.value);setSelected(new Set());}} />
               </div>
 
               <div style={{ overflowX:'auto' }}>
@@ -519,7 +573,7 @@ export default function AdminDashboard() {
                   <thead>
                     <tr>
                       <th style={{ width:'44px', textAlign:'center', paddingLeft:'16px' }}>
-                        <input type="checkbox" title={allSelected?'Deselect All':'Select All'} checked={allSelected} ref={el=>{if(el)el.indeterminate=someSelected;}} onChange={toggleSelectAll} style={{ cursor:'pointer', width:'15px', height:'15px', accentColor:'var(--cyan-600)' }} />
+                        <input type="checkbox" checked={allSelected} ref={el=>{if(el)el.indeterminate=someSelected;}} onChange={toggleSelectAll} style={{ cursor:'pointer', width:'15px', height:'15px', accentColor:'var(--cyan-600)' }} />
                       </th>
                       <th>Certificate No.</th>
                       <th>Student Name</th>
@@ -559,7 +613,7 @@ export default function AdminDashboard() {
                             <div className="act-btns">
                               <button className="ab ab-view" onClick={()=>navigate('/result',{state:{certificate:c}})}>👁 View</button>
                               <button className="ab ab-edit" onClick={()=>openEdit(c)}>✏️ Edit</button>
-                              <button className="ab ab-del"  onClick={()=>handleDelete(c.cert_no)}>🗑 Delete</button>
+                              <button className="ab ab-del" onClick={()=>handleDelete(c.cert_no)}>🗑 Delete</button>
                             </div>
                           </td>
                         </tr>
@@ -568,13 +622,6 @@ export default function AdminDashboard() {
                   </tbody>
                 </table>
               </div>
-
-              {!loading && filteredCerts.length > 0 && (
-                <div style={{ padding:'12px 20px', borderTop:'1px solid var(--border)', fontSize:'12px', color:'var(--muted)', fontFamily:'var(--font-display)', fontWeight:600, display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:'6px' }}>
-                  <span>Showing {filteredCerts.length} of {certs.length} records{search&&` · Filtered by "${search}"`}</span>
-                  {selected.size > 0 && <span style={{ color:'var(--cyan-600)' }}>{selected.size} row{selected.size>1?'s':''} selected</span>}
-                </div>
-              )}
             </div>
           </>)}
 
@@ -589,14 +636,14 @@ export default function AdminDashboard() {
                     <p style={{ fontSize:'13px', color:'var(--muted)', marginTop:'2px' }}>Fill in the details to create a new certificate.</p>
                   </div>
                 </div>
-                <button type="button" className="btn-back" onClick={()=>setActiveTab('all')} style={{ flexShrink:0 }}>← Back to Registry</button>
+                <button type="button" className="btn-back" onClick={()=>setActiveTab('all')}>← Back to Registry</button>
               </div>
               <form onSubmit={handleIssue} className="f-grid">
                 <div className="igroup">
                   <label>Certificate Number</label>
                   <div className="cert-no-wrap">
                     <input type="text" placeholder="e.g., NTCS261502" value={iCertNo} onChange={e=>setICertNo(e.target.value.toUpperCase())} required />
-                    <button type="button" className="auto-tag" onClick={()=>calculateNextCertNo(iType)} title="Auto-generate">Auto</button>
+                    <button type="button" className="auto-tag" onClick={()=>setICertNo(calculateNextCertNo(iType))}>Auto</button>
                   </div>
                 </div>
                 <div className="igroup">
@@ -634,34 +681,94 @@ export default function AdminDashboard() {
             </div>
           )}
 
+          {/* ── PENDING REQUESTS MANAGEMENT TAB ── */}
+          {activeTab === 'requests' && (
+            <div className="t-card">
+              <div className="t-toolbar">
+                <h3>Pending Filings Queue</h3>
+                <input type="text" className="s-input" placeholder="🔍 Filter pending list..." value={search} onChange={e=>setSearch(e.target.value)} />
+              </div>
+              <div style={{ overflowX:'auto' }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Assignee Reference</th>
+                      <th>Contact (Mobile)</th>
+                      <th>Scheme Module</th>
+                      <th>Specialization Field</th>
+                      <th>Duration Windows</th>
+                      <th>Evaluation Controls</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loading ? (
+                      Array.from({length:3}).map((_,i)=>(
+                        <tr key={i} className="skeleton-row">
+                          {Array.from({length:6}).map((__,j)=><td key={j}><div className="skeleton-box short" /></td>)}
+                        </tr>
+                      ))
+                    ) : filteredRequests.length === 0 ? (
+                      <tr><td colSpan={6}>
+                        <div className="empty-state">
+                          <div className="empty-state-icon">📥</div>
+                          <div className="empty-state-title">No pending requests</div>
+                          <div className="empty-state-text">Incoming filings from the Request portal will register here.</div>
+                        </div>
+                      </td></tr>
+                    ) : (
+                      filteredRequests.map(r => (
+                        <tr key={r.id}>
+                          <td>
+                            <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
+                              {r.photo_url ? (
+                                <img src={r.photo_url} alt="portrait" style={{ width:'36px', height:'42px', borderRadius:'4px', objectFit:'cover', border:'1px solid var(--border)' }} />
+                              ) : (
+                                <div style={{ width:'36px', height:'42px', borderRadius:'4px', background:'var(--slate-100)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'14px' }}>👤</div>
+                              )}
+                              <strong style={{ fontSize:'13.5px', color:'var(--slate-900)' }}>{r.student_name}</strong>
+                            </div>
+                          </td>
+                          <td><span style={{ fontFamily:'var(--font-mono)', fontWeight:600 }}>{r.mobile}</span></td>
+                          <td><span className={`badge ${r.program_type==='Internship'?'b-intern':'b-training'}`}>{r.program_type}</span></td>
+                          <td style={{ color:'var(--slate-700)', fontWeight:600 }}>{r.domain}</td>
+                          <td style={{ fontSize:'12px', color:'var(--muted)', whiteSpace:'nowrap' }}>{formatDate(r.start_date)} - {formatDate(r.end_date)}</td>
+                          <td>
+                            <div className="act-btns">
+                              <button className="ab ab-dl" onClick={() => openAcceptModal(r)}>✅ Approve</button>
+                              <button className="ab ab-del" onClick={() => handleRejectRequest(r)}>✕ Decline</button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </main>
       </div>
 
-      {/* ── EDIT MODAL ── */}
+      {/* ── RUNTIME MODAL CORRECTION SUITE OVERLAY ── */}
       <div className={`overlay ${isEditOpen?'open':''}`} onClick={(e)=>{if(e.target.classList.contains('overlay'))closeEdit();}}>
         <div className="modal">
           <div className="modal-header">
-            <h3>✏️ Edit Certificate</h3>
+            <h3>✏️ Edit Certificate Configuration Parameters</h3>
             <button type="button" className="modal-close" onClick={closeEdit}>✕</button>
           </div>
-
           <form onSubmit={handleEditSave} className="f-grid" style={{ padding:'26px' }}>
-
             <div className="igroup">
               <label>Certificate Number</label>
               <input type="text" value={editFields.cert_no ?? ''} onChange={e=>setEditFields(p=>({...p,cert_no:e.target.value.toUpperCase()}))} required />
             </div>
-
             <div className="igroup">
               <label>Mobile Number</label>
               <input type="tel" maxLength={10} value={editFields.mobile ?? ''} onChange={e=>setEditFields(p=>({...p,mobile:e.target.value.replace(/\D/g,'')}))} required />
             </div>
-
             <div className="igroup f-full">
               <label>Student Full Name</label>
               <input type="text" value={editFields.student_name ?? ''} onChange={e=>setEditFields(p=>({...p,student_name:e.target.value.toUpperCase()}))} required style={{ fontWeight:700 }} />
             </div>
-
             <div className="igroup">
               <label>Program Type</label>
               <select value={editFields.program_type ?? 'Internship'} onChange={e=>setEditFields(p=>({...p,program_type:e.target.value}))}>
@@ -669,41 +776,88 @@ export default function AdminDashboard() {
                 <option value="Training">Training</option>
               </select>
             </div>
-
             <div className="igroup">
               <label>Domain / Specialization</label>
               <input type="text" value={editFields.domain ?? ''} onChange={e=>setEditFields(p=>({...p,domain:toTitleCase(e.target.value)}))} required />
             </div>
-
             <div className="igroup">
               <label>Start Date</label>
               <input type="date" value={editFields.start_date ?? ''} onChange={e=>setEditFields(p=>({...p,start_date:e.target.value}))} required />
             </div>
-
             <div className="igroup">
               <label>End Date</label>
               <input type="date" value={editFields.end_date ?? ''} onChange={e=>setEditFields(p=>({...p,end_date:e.target.value}))} required />
             </div>
-
             <PhotoUploader
               value={ePhoto === undefined ? null : ePhoto}
               existingUrl={ePhoto === undefined ? (editRecord?.photo_url ?? null) : undefined}
-              onChange={setEPhoto}
-              notify={showToast}
-              label="Replace Passport Photo"
+              onChange={setEPhoto} notify={showToast} label="Replace Passport Photo"
             />
-
             <div className="f-full" style={{ display:'flex', gap:'8px', justifyContent:'flex-end', marginTop:'6px', borderTop:'1px solid var(--border)', paddingTop:'18px' }}>
-              <button type="button" className="btn-back" style={{ padding:'9px 16px', margin:0 }} onClick={closeEdit}>Cancel</button>
-              <button type="submit" className="btn-issue" style={{ padding:'9px 22px', margin:0 }}>💾 Save Changes</button>
+              <button type="button" className="btn-back" onClick={closeEdit}>Cancel</button>
+              <button type="submit" className="btn-issue">💾 Save Changes</button>
             </div>
           </form>
         </div>
       </div>
 
-      {/* ── TOAST ── */}
-      <div className={`toast ${toast.type} ${toast.show?'show':''}`}>{toast.message}</div>
+      {/* ── APPROVE FILING CONFIGURATION MODAL OVERLAY ── */}
+      <div className={`overlay ${isAcceptModalOpen?'open':''}`} onClick={(e)=>{if(e.target.classList.contains('overlay')) { setIsAcceptModalOpen(false); setRequestActionRecord(null); }}}>
+        <div className="modal">
+          <div className="modal-header">
+            <h3>🎓 Approve Filing & Mint Certificate</h3>
+            <button type="button" className="modal-close" onClick={() => { setIsAcceptModalOpen(false); setRequestActionRecord(null); }}>✕</button>
+          </div>
+          <form onSubmit={handleAcceptRequestSubmit} className="f-grid" style={{ padding:'26px' }}>
+            <div className="igroup">
+              <label>Assign Serial Registry Key</label>
+              <div className="cert-no-wrap">
+                <input type="text" value={editFields.cert_no ?? ''} onChange={e=>setEditFields(p=>({...p,cert_no:e.target.value.toUpperCase()}))} required />
+                <button type="button" className="auto-tag" onClick={() => setEditFields(p => ({...p, cert_no: calculateNextCertNo(editFields.program_type)}))}>Auto</button>
+              </div>
+            </div>
+            <div className="igroup">
+              <label>Mobile Number</label>
+              <input type="tel" maxLength={10} value={editFields.mobile ?? ''} onChange={e=>setEditFields(p=>({...p,mobile:e.target.value.replace(/\D/g,'')}))} required />
+            </div>
+            <div className="igroup f-full">
+              <label>Student Full Name</label>
+              <input type="text" value={editFields.student_name ?? ''} onChange={e=>setEditFields(p=>({...p,student_name:e.target.value.toUpperCase()}))} required style={{ fontWeight:700 }} />
+            </div>
+            <div className="igroup">
+              <label>Program Type</label>
+              <select value={editFields.program_type ?? 'Internship'} onChange={e=>{ const t = e.target.value; setEditFields(p=>({...p,program_type:t, cert_no: calculateNextCertNo(t)})); }}>
+                <option value="Internship">Internship</option>
+                <option value="Training">Training</option>
+              </select>
+            </div>
+            <div className="igroup">
+              <label>Domain / Specialization</label>
+              <input type="text" value={editFields.domain ?? ''} onChange={e=>setEditFields(p=>({...p,domain:toTitleCase(e.target.value)}))} required />
+            </div>
+            <div className="igroup">
+              <label>Start Date</label>
+              <input type="date" value={editFields.start_date ?? ''} onChange={e=>setEditFields(p=>({...p,start_date:e.target.value}))} required />
+            </div>
+            <div className="igroup">
+              <label>End Date</label>
+              <input type="date" value={editFields.end_date ?? ''} onChange={e=>setEditFields(p=>({...p,end_date:e.target.value}))} required />
+            </div>
+            <PhotoUploader
+              value={ePhoto === undefined ? null : ePhoto}
+              existingUrl={ePhoto === undefined ? (requestActionRecord?.photo_url ?? null) : undefined}
+              onChange={setEPhoto} notify={showToast} label="Verify Portrait Frame"
+            />
+            <div className="f-full" style={{ display:'flex', gap:'8px', justifyContent:'flex-end', marginTop:'6px', borderTop:'1px solid var(--border)', paddingTop:'18px' }}>
+              <button type="button" className="btn-back" onClick={() => { setIsAcceptModalOpen(false); setRequestActionRecord(null); }}>Abort</button>
+              <button type="submit" className="btn-issue">🚀 Deploy Certificate to Registry</button>
+            </div>
+          </form>
+        </div>
+      </div>
 
+      {/* ── TOAST HUD ── */}
+      <div className={`toast ${toast.type} ${toast.show?'show':''}`}>{toast.message}</div>
     </div>
   );
 }

@@ -115,7 +115,7 @@ function CropModal({ imageSrc, onConfirm, onCancel }) {
           <input type="range" min={minScale} max={maxScale} step={0.001} value={scale} onChange={handleZoomChange} style={{ width:'100%', accentColor:'#06b6d4' }} />
         </div>
         <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:18 }}>
-          <button type="button" onClick={onCancel} style={{ padding:'9px 18px', borderRadius:8, border:'1px solid var(--border,#e2e8f0)', background:'transparent', fontSize:13, fontWeight:700, cursor:'pointer' }}>Cancel</button>
+          <button type="button" onClick={onCancel} style={{ padding:'9px 18px', borderRadius:8, border:'1px solid var(--border,#e2e8f0)', background:'transparent', fontSize:13, fontWeight:700, cursor:'pointer', color:'var(--slate-700)' }}>Cancel</button>
           <button type="button" onClick={handleConfirm} style={{ padding:'9px 22px', borderRadius:8, border:'none', background:'linear-gradient(135deg,#06b6d4,#0891b2)', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>✂️ Crop & Use</button>
         </div>
       </div>
@@ -166,7 +166,7 @@ function PhotoUploader({ value, existingUrl, onChange, notify, label = 'Passport
           onDrop={(e) => { e.preventDefault(); setDragOver(false); validateAndOpenCrop(e.dataTransfer.files[0]); }}
           style={{ border:`2px dashed ${dragOver?'#06b6d4':'var(--border,#e2e8f0)'}`, borderRadius:10, padding:'22px 16px', textAlign:'center', cursor:'pointer', background:dragOver?'var(--cyan-50,#ecfeff)':'var(--slate-50,#f8fafc)', transition:'all 0.18s ease' }}
         >
-          <div style={{ fontSize:28, marginBottom:8 }}>{dragOver ? '📂' : '📷'}</div>
+          <div style={{ fontSize:28, marginBottom:8 }}>{dragOver ? '📂' : '📸'}</div>
           <div style={{ fontSize:13, fontWeight:700, color:dragOver?'#0891b2':'var(--slate-600,#475569)', marginBottom:4 }}>{dragOver ? 'Drop to upload' : 'Drag & drop or click to browse'}</div>
           <div style={{ fontSize:11, color:'var(--muted,#94a3b8)' }}>JPG, PNG, WEBP · Crop tool opens after selection</div>
         </div>
@@ -189,6 +189,10 @@ export default function AdminDashboard() {
   const [toast, setToast]               = useState({ message: '', type: '', show: false });
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [selected, setSelected]         = useState(new Set());
+
+  /* Functional Layout Filters State Keys */
+  const [filterProgram, setFilterProgram]       = useState('all');
+  const [filterVisibility, setFilterVisibility] = useState('all');
 
   /* Issue form */
   const [iCertNo, setICertNo] = useState('');
@@ -219,11 +223,13 @@ export default function AdminDashboard() {
     setTimeout(() => setToast({ message:'', type:'', show:false }), 3400);
   };
 
-  /* ── Load ── */
+  /* ── Load Data Hook Sorted By Cert No Descending ── */
   const loadData = useCallback(async () => {
     setLoading(true);
     const { data, error } = await supabase
-      .from('certificates').select('*').order('issued_date', { ascending: false });
+      .from('certificates')
+      .select('*')
+      .order('cert_no', { ascending: false }); 
     if (!error && data) setCerts(data);
     setLoading(false);
   }, []);
@@ -234,11 +240,20 @@ export default function AdminDashboard() {
   const approvedCerts = certs.filter(c => !c.cert_no?.startsWith('PENDING/'));
   const pendingRequests = certs.filter(c => c.cert_no?.startsWith('PENDING/'));
 
-  const filteredCerts = approvedCerts.filter(c =>
-    (c.student_name || '').toLowerCase().includes(search.toLowerCase()) ||
-    (c.cert_no      || '').toLowerCase().includes(search.toLowerCase()) ||
-    (c.domain       || '').toLowerCase().includes(search.toLowerCase())
-  );
+  /* Multi-Tier Cascade Filter Evaluator Core Pipeline Engine */
+  const filteredCerts = approvedCerts.filter(c => {
+    const matchesSearch = (c.student_name || '').toLowerCase().includes(search.toLowerCase()) ||
+                          (c.cert_no      || '').toLowerCase().includes(search.toLowerCase()) ||
+                          (c.domain       || '').toLowerCase().includes(search.toLowerCase());
+                          
+    const matchesProgram = filterProgram === 'all' || c.program_type === filterProgram;
+    
+    const matchesVisibility = filterVisibility === 'all' ||
+                              (filterVisibility === 'hidden' && c.is_hidden) ||
+                              (filterVisibility === 'visible' && !c.is_hidden);
+
+    return matchesSearch && matchesProgram && matchesVisibility;
+  });
 
   const filteredRequests = pendingRequests.filter(c =>
     (c.student_name || '').toLowerCase().includes(search.toLowerCase()) ||
@@ -340,7 +355,7 @@ export default function AdminDashboard() {
     } else if (!data || data.length === 0) {
       showToast('❌ Update matched no active rows.', 'err');
     } else {
-      showToast('✅ Certificate updated.', 'ok');
+      showToast('✅ Certificate registry parameters synchronized.', 'ok');
       closeEdit();
       loadData();
     }
@@ -404,7 +419,7 @@ export default function AdminDashboard() {
       start_date: editFields.start_date,
       end_date: editFields.end_date,
       photo_url: finalPhoto,
-      is_hidden: false // Explicitly verify node configuration flags as unhidden on launch promotion
+      is_hidden: false 
     };
 
     const { error } = await supabase
@@ -535,6 +550,7 @@ export default function AdminDashboard() {
 
           {/* ── ALL REGISTER TAB ── */}
           {activeTab === 'all' && (<>
+            {/* ── STATS ROW (FIXED MOUNT SYNTAX OBJECTS) ── */}
             <div className="stats-row">
               <div className="stat" style={{ animationDelay:'0ms' }}>
                 <div className="s-label">Total Volume</div>
@@ -543,7 +559,7 @@ export default function AdminDashboard() {
               </div>
               <div className="stat" style={{ animationDelay:'80ms' }}>
                 <div className="s-label" style={{ color:'var(--cyan-600)' }}>Internships</div>
-                <div className="s-val" style={{ color:'var(--cyan-600)' }}>{approvedCerts.filter(c=>c.program_type==='Internship').length}</div>
+                <div className="s-val" style={{ color: 'var(--cyan-600)' }}>{approvedCerts.filter(c=>c.program_type==='Internship').length}</div>
                 <div className="s-sub">Internship schemes</div>
               </div>
               <div className="stat" style={{ animationDelay:'160ms' }}>
@@ -583,7 +599,32 @@ export default function AdminDashboard() {
                     </button>
                   )}
                 </div>
-                <input type="text" className="s-input" placeholder="🔍  Search registry cards..." value={search} onChange={e=>{setSearch(e.target.value);setSelected(new Set());}} />
+                
+                <div style={{ display:'flex', alignItems:'center', gap:'12px', flexWrap:'wrap' }}>
+                  <select 
+                    className="s-input" 
+                    style={{ width:'160px', padding:'9px 12px', cursor:'pointer' }}
+                    value={filterProgram} 
+                    onChange={e => { setFilterProgram(e.target.value); setSelected(new Set()); }}
+                  >
+                    <option value="all">All Programs</option>
+                    <option value="Internship">Internships Only</option>
+                    <option value="Training">Trainings Only</option>
+                  </select>
+
+                  <select 
+                    className="s-input" 
+                    style={{ width:'160px', padding:'9px 12px', cursor:'pointer' }}
+                    value={filterVisibility} 
+                    onChange={e => { setFilterVisibility(e.target.value); setSelected(new Set()); }}
+                  >
+                    <option value="all">All Statuses</option>
+                    <option value="visible">Visible Only</option>
+                    <option value="hidden">Hidden Only</option>
+                  </select>
+
+                  <input type="text" className="s-input" placeholder="🔍  Search registry cards..." value={search} onChange={e=>{setSearch(e.target.value);setSelected(new Set());}} />
+                </div>
               </div>
 
               <div style={{ overflowX:'auto' }}>
@@ -613,7 +654,12 @@ export default function AdminDashboard() {
                         <div className="empty-state">
                           <div className="empty-state-icon">🔍</div>
                           <div className="empty-state-title">No certificates found</div>
-                          <div className="empty-state-text">{search?'Try a different search term':'Issue your first certificate to get started'}</div>
+                          <div className="empty-state-text">
+                            {search || filterProgram !== 'all' || filterVisibility !== 'all' 
+                              ? 'No records match your active filtering parameters.' 
+                              : 'Issue your first certificate to get started.'
+                            }
+                          </div>
                         </div>
                       </td></tr>
                     ) : (
@@ -635,7 +681,6 @@ export default function AdminDashboard() {
                               <button className="ab ab-view" onClick={()=>navigate('/result',{state:{certificate:c}})}>👁 View</button>
                               <button className="ab ab-edit" onClick={()=>openEdit(c)}>✏️ Edit</button>
                               
-                              {/* Integrated Hide / Unhide Multi-Action Layer Element */}
                               {c.is_hidden ? (
                                 <button type="button" className="ab ab-dl" onClick={() => handleToggleVisibility(c)}>🔓 Unhide</button>
                               ) : (
@@ -651,6 +696,13 @@ export default function AdminDashboard() {
                   </tbody>
                 </table>
               </div>
+              
+              {!loading && filteredCerts.length > 0 && (
+                <div style={{ padding:'12px 20px', borderTop:'1px solid var(--border)', fontSize:'12px', color:'var(--muted)', fontFamily:'var(--font-display)', fontWeight:600, display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:'6px' }}>
+                  <span>Showing {filteredCerts.length} of {approvedCerts.length} entries</span>
+                  {selected.size > 0 && <span style={{ color:'var(--cyan-600)' }}>{selected.size} row{selected.size>1?'s':''} selected</span>}
+                </div>
+              )}
             </div>
           </>)}
 

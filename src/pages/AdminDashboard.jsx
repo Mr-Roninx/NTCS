@@ -340,7 +340,7 @@ export default function AdminDashboard() {
     } else if (!data || data.length === 0) {
       showToast('❌ Update matched no active rows.', 'err');
     } else {
-      showToast('✅ Certificate registry parameters synchronized.', 'ok');
+      showToast('✅ Certificate updated.', 'ok');
       closeEdit();
       loadData();
     }
@@ -352,6 +352,22 @@ export default function AdminDashboard() {
     const { error } = await supabase.from('certificates').delete().eq('cert_no', certNo);
     if (error) showToast('❌ Delete failed.', 'err');
     else { showToast(`🗑️ ${certNo} deleted.`, 'ok'); loadData(); }
+  };
+
+  /* ── Toggle Hide / Unhide Visibility ── */
+  const handleToggleVisibility = async (cert) => {
+    const nextStatus = !cert.is_hidden;
+    const { error } = await supabase
+      .from('certificates')
+      .update({ is_hidden: nextStatus })
+      .eq('id', cert.id);
+
+    if (error) {
+      showToast('❌ Failed to override record visibility parameter state.', 'err');
+    } else {
+      showToast(nextStatus ? '🔒 Certificate hidden from public verification routing lines.' : '🔓 Certificate authorized for public gateway tracing queries.', 'ok');
+      loadData();
+    }
   };
 
   /* ── Request tab actions ── */
@@ -388,6 +404,7 @@ export default function AdminDashboard() {
       start_date: editFields.start_date,
       end_date: editFields.end_date,
       photo_url: finalPhoto,
+      is_hidden: false // Explicitly verify node configuration flags as unhidden on launch promotion
     };
 
     const { error } = await supabase
@@ -448,6 +465,7 @@ export default function AdminDashboard() {
             domain:       toTitleCase(String(r['Domain']||'')).trim(),
             start_date:   parseExcelDate(r['Start Date']),
             end_date:     parseExcelDate(r['End Date']),
+            is_hidden:    false
           }))
           .filter(r => r.cert_no && r.student_name && r.mobile.length >= 10);
         if (!rows.length) throw new Error('No valid data found.');
@@ -604,8 +622,11 @@ export default function AdminDashboard() {
                           <td style={{ textAlign:'center', paddingLeft:'16px' }}>
                             <input type="checkbox" checked={selected.has(c.id)} onChange={()=>toggleSelect(c.id)} style={{ cursor:'pointer', width:'15px', height:'15px', accentColor:'var(--cyan-600)' }} />
                           </td>
-                          <td><span className="mono">{c.cert_no}</span></td>
-                          <td><strong style={{ fontSize:'13.5px' }}>{c.student_name}</strong></td>
+                          <td>
+                            <span className="mono" style={{ opacity: c.is_hidden ? 0.45 : 1 }}>{c.cert_no}</span>
+                            {c.is_hidden && <span style={{ marginLeft: 6, fontSize: 10, background: 'var(--slate-100)', color: 'var(--slate-600)', padding: '2px 6px', borderRadius: 4, fontWeight: 700 }}>HIDDEN</span>}
+                          </td>
+                          <td><strong style={{ fontSize:'13.5px', opacity: c.is_hidden ? 0.6 : 1 }}>{c.student_name}</strong></td>
                           <td><span className={`badge ${c.program_type==='Internship'?'b-intern':'b-training'}`}>{c.program_type}</span></td>
                           <td style={{ color:'var(--slate-700)', fontWeight:600 }}>{c.domain}</td>
                           <td style={{ fontSize:'12px', color:'var(--muted)', whiteSpace:'nowrap' }}>{formatDate(c.start_date)} – {formatDate(c.end_date)}</td>
@@ -613,6 +634,14 @@ export default function AdminDashboard() {
                             <div className="act-btns">
                               <button className="ab ab-view" onClick={()=>navigate('/result',{state:{certificate:c}})}>👁 View</button>
                               <button className="ab ab-edit" onClick={()=>openEdit(c)}>✏️ Edit</button>
+                              
+                              {/* Integrated Hide / Unhide Multi-Action Layer Element */}
+                              {c.is_hidden ? (
+                                <button type="button" className="ab ab-dl" onClick={() => handleToggleVisibility(c)}>🔓 Unhide</button>
+                              ) : (
+                                <button type="button" className="ab ab-edit" onClick={() => handleToggleVisibility(c)}>🔒 Hide</button>
+                              )}
+
                               <button className="ab ab-del" onClick={()=>handleDelete(c.cert_no)}>🗑 Delete</button>
                             </div>
                           </td>

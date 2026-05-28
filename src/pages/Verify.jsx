@@ -25,6 +25,7 @@ export default function Verify() {
         .select('*')
         .ilike('cert_no', certNo.trim())
         .eq('mobile', mobile.trim())
+        .or('is_hidden.is.null,is_hidden.eq.false')
         .maybeSingle();
 
       if (error || !data) {

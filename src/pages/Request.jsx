@@ -140,7 +140,8 @@ function PhotoUploader({ value, onChange, notify, label = 'Passport Photo' }) {
             <div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems: 'center' }}>
               <button type="button" onClick={() => fileRef.current?.click()} style={{ fontSize:11, fontWeight:700, color:'var(--cyan-600)', background:'none', border:'none', cursor:'pointer', padding:0 }}>✏️ Replace</button>
               <span style={{ color:'#cbd5e1', fontSize:11 }}>|</span>
-              <button type="button" onClick={() => onChange(null)} style={{ fontSize:11, fontWeight:700, color:'var(--danger)', background:'none', border:'none', cursor:'pointer', padding:0 }}>🗑 Remove</button>
+              {/* Fixed Syntax: Cleared out broken token typo configurations */}
+              <button type="button" onClick={() => onChange(null)} style={{ fontSize:11, fontWeight:700, color:'var(--danger)', background:'none', border: 'none', cursor:'pointer', padding:0 }}>🗑 Remove</button>
             </div>
           </div>
         </div>
@@ -193,20 +194,36 @@ export default function Request() {
 
     setLoading(true);
 
-    const requestPayload = {
-      student_name: name.toUpperCase().trim(),
-      mobile: mobile.trim(),
-      program_type: programType,
-      domain: toTitleCase(domain).trim(),
-      start_date: startDate,
-      end_date: endDate,
-      photo_url: photo,
-      cert_no: `PENDING/${String(Date.now()).slice(-5)}` 
-    };
-
     try {
-      const { error } = await supabase.from('certificates').insert([requestPayload]);
-      if (error) {
+      /* ─── PRE-SUBMISSION VERIFICATION LAYER ─── */
+      const { data: duplicateRecords, error: verifyError } = await supabase
+        .from('certificates')
+        .select('id')
+        .eq('mobile', mobile.trim());
+
+      if (verifyError) throw verifyError;
+
+      if (duplicateRecords && duplicateRecords.length > 0) {
+        showToast('Your Application is already submitted! If you filled the details incorrectly contact the Admin', 'err');
+        setLoading(false);
+        return;
+      }
+
+      /* ─── DISPATCH PATHWAY VALIDATION PASSED ─── */
+      const requestPayload = {
+        student_name: name.toUpperCase().trim(),
+        mobile: mobile.trim(),
+        program_type: programType,
+        domain: toTitleCase(domain).trim(),
+        start_date: startDate,
+        end_date: endDate,
+        photo_url: photo,
+        cert_no: `PENDING/${String(Date.now()).slice(-5)}` 
+      };
+
+      const { error: insertError } = await supabase.from('certificates').insert([requestPayload]);
+      
+      if (insertError) {
         showToast('Submission rejected. Cloud schema deployment fault.', 'err');
       } else {
         showToast('🎉 Application successfully submitted to active logs!', 'ok');
@@ -214,6 +231,7 @@ export default function Request() {
         setTimeout(() => navigate('/'), 2000);
       }
     } catch (err) {
+      console.error('Thread fault context exception:', err);
       showToast('Ecosystem thread context runtime failure.', 'err');
     } finally {
       setLoading(false);

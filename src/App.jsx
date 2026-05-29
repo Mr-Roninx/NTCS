@@ -8,6 +8,7 @@ import Result from './pages/Result';
 import Request from './pages/Request'; 
 import AdminLogin from './pages/AdminLogin';
 import AdminDashboard from './pages/AdminDashboard';
+import Status from './pages/Status';
 
 export default function App() {
   return (
@@ -26,6 +27,8 @@ export default function App() {
           {/* 2. Changed from "/login" to "/admin-login" to match your system context redirection path calls */}
           <Route path="/admin-login" element={<AdminLogin />} />
           
+          <Route path="/status" element={<Status />} />
+          
           {/* Protected Operator Console Node */}
           <Route 
             path="/admin" 
@@ -33,7 +36,7 @@ export default function App() {
               <ProtectedRoute>
                 <AdminDashboard />
               </ProtectedRoute>
-            } 
+            }             
           />
         </Routes>
       </BrowserRouter>

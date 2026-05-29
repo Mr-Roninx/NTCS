@@ -22,8 +22,13 @@ export default function TopNav() {
           🔍 Verify Certificate
         </button>
         
-        {/* The Request button has been completely removed from the DOM tree. */}
-        {/* Access to the application form is now restricted to manual URL navigation via "/request". */}
+        {/* NEWLY INTEGRATED CHECK STATUS ACTION BUTTON */}
+        <button className="nav-btn outline" onClick={() => navigate('/status')}>
+          📊 Check Status
+        </button>
+        
+        {/* The Request button remains completely removed from the public DOM tree. */}
+        {/* Access to the application form is restricted to manual URL navigation via "/request". */}
       </div>
     </nav>
   );

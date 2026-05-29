@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { jsPDF } from 'jspdf';
 
@@ -207,7 +207,7 @@ async function drawCertificate(cert, templateDataURL, photoDataURL) {
     { str: ' Programme at ' },
     { str: 'NEW TECHNOLOGY CAREER SOLUTIONS', bold: true, color: '#0303b4' },
     { str: ', in the domain of ' },
-    { str: cert.domain,           bold: true, color: '#0303b4' },
+    { str: cert.domain,               bold: true, color: '#0303b4' },
     { str: ', for the duration from ' },
     { str: formatDate(cert.start_date), bold: true, color: '#0303b4' },
     { str: ' to ' },
@@ -262,12 +262,7 @@ async function drawCertificate(cert, templateDataURL, photoDataURL) {
     });
   }
 
-  /* 6. Issue date */
-  const issuedDate = formatDate(cert.issued_date || new Date());
-  text(`Issued: ${issuedDate}`, 50, 1310, {
-    font: '600 13px "Syne", sans-serif',
-    color: '#555',
-  });
+  /* 6. Issue date section has been completely removed from PDF render vector layers */
 
   /* 7. Photo */
   if (photoDataURL) {
@@ -601,12 +596,7 @@ export default function Result() {
                       ✔ Digitally Verified
                     </div>
 
-                    <div
-                      className="cert-gendate"
-                      style={{ top:1310, left:50, fontFamily:"'Syne', sans-serif", fontWeight:600, color:'#555' }}
-                    >
-                      Issued: {formatDate(cert.issued_date || new Date())}
-                    </div>
+                    {/* Visual entry wrapper section for certificate generation date has been permanently purged from preview interface */}
 
                     <div
                       className="cert-photo"

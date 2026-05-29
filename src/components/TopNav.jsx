@@ -11,6 +11,16 @@ export default function TopNav() {
         .navbar-responsive-container {
           display: flex;
           align-items: center;
+          justify-content: space-between;
+          width: 100%;
+          transition: all var(--t-base, 0.2s) var(--ease-smooth, ease);
+        }
+        
+        /* Perfect Desktop/Laptop Dimension Profile */
+        .logo-wrap .logo-img-box img {
+          height: 44px !important; 
+          width: auto !important;
+          object-fit: contain !important;
           transition: all var(--t-base, 0.2s) var(--ease-smooth, ease);
         }
         
@@ -18,11 +28,10 @@ export default function TopNav() {
           display: flex;
           gap: 12px;
           align-items: center;
-          margin-left: auto;
           transition: all var(--t-base, 0.2s) var(--ease-smooth, ease);
         }
 
-        /* ── MOBILE BREAKPOINT TRANSITION MATRIX ── */
+        /* ── TABLET & SMALL SCREEN TRANSITION ── */
         @media (max-width: 576px) {
           .navbar-responsive-container {
             padding: 12px 16px !important;
@@ -31,30 +40,44 @@ export default function TopNav() {
             gap: 8px !important;
           }
           .nav-actions-group .nav-btn {
-            padding: 8px 12px !important;
+            padding: 8px 14px !important;
             font-size: 12px !important;
-            letter-spacing: 0px !important;
+            letter-spacing: 0.2px !important;
+            white-space: nowrap !important;
           }
         }
 
-        /* ── ULTRA-NARROW DEVICE OPTIMIZATION GRID ── */
-        @media (max-width: 440px) {
+        /* ── SMARTPHONE STACKED NAVIGATION VIEW ── */
+        @media (max-width: 460px) {
           .navbar-responsive-container {
-            flex-direction: column !important;
-            align-items: flex-start !important;
-            gap: 14px !important;
-            padding: 16px !important;
+            flex-direction: row !important; /* Retains crisp left-to-right grid distribution */
+            align-items: center !important;
+            padding: 8px 12px !important; 
           }
+          
+          /* Scales down the logo specifically for smartphones to prevent vertical stretching */
+          .logo-wrap .logo-img-box img {
+            height: 32px !important; 
+          }
+          
+          .logo-wrap {
+            transform: none !important; /* Clears any blurry layout transform artifacts */
+          }
+          
           .nav-actions-group {
-            width: 100% !important;
-            margin-left: 0 !important;
-            justify-content: stretch !important;
+            flex-direction: column !important; /* Enforces clean up-and-down block stacking */
+            align-items: flex-end !important; 
+            gap: 4px !important; /* Compact spacing track tailored for mobile viewports */
+            margin-left: auto !important;
           }
+          
           .nav-actions-group .nav-btn {
-            flex: 1 !important;
+            width: 130px !important; /* Uniform proportional constraint tracking widths */
             justify-content: center !important;
             text-align: center !important;
-            padding: 10px 8px !important;
+            padding: 4px 6px !important; 
+            font-size: 10.5px !important; 
+            line-height: 1.2 !important;
           }
         }
       `}} />
@@ -65,7 +88,7 @@ export default function TopNav() {
           <img 
             src="/Logo.jpg" 
             alt="NTCS Logo" 
-            onError={(e) => { e.target.style.display='none'; }} 
+            onError={(e) => { e.target.style.display = 'none'; }} 
           />
         </div>
         <div className="logo-divider"></div>
